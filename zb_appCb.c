@@ -72,6 +72,8 @@ ota_callBack_t motionSensor_otaCb =
 };
 #endif
 
+ev_timer_event_t *steerTimerEvt = NULL;
+ev_timer_event_t *myRejoinBackoffTimerEvt = NULL;
 
 /**********************************************************************
  * FUNCTIONS
@@ -81,6 +83,17 @@ s32 motionSensor_bdbNetworkSteerStart(void *arg){
 
 	return -1;
 }
+
+s32 motionSensor_rejoinBacckoff(void *arg){
+	if(zb_isDeviceFactoryNew()){
+		myRejoinBackoffTimerEvt = NULL;
+		return -1;
+	}
+
+	zb_rejoinReq(zb_apsChannelMaskGet(), g_bdbAttrs.scanDuration);
+    return 0;
+}
+
 
 /*********************************************************************
  * @fn      zbdemo_bdbInitCb
@@ -119,12 +132,17 @@ void zbdemo_bdbInitCb(u8 status, u8 joinedNetwork){
 			do{
 				jitter = zb_random() % 0x0fff;
 			}while(jitter == 0);
-			TL_ZB_TIMER_SCHEDULE(motionSensor_bdbNetworkSteerStart, NULL, jitter);
+			if(steerTimerEvt){
+				TL_ZB_TIMER_CANCEL(&steerTimerEvt);
+			}
+			steerTimerEvt = TL_ZB_TIMER_SCHEDULE(motionSensor_bdbNetworkSteerStart, NULL, jitter);
 		}
 
 	}else{
 		if(joinedNetwork){
-			zb_rejoinReqWithBackOff(zb_apsChannelMaskGet(), g_bdbAttrs.scanDuration);
+			if(!myRejoinBackoffTimerEvt){
+				myRejoinBackoffTimerEvt = TL_ZB_TIMER_SCHEDULE(motionSensor_rejoinBacckoff, NULL, 60 * 1000);
+			}
 		}
 	}
 }
@@ -146,6 +164,15 @@ void zbdemo_bdbCommissioningCb(u8 status, void *arg){
 			light_blink_start(2, 200, 200);
 
 			zb_setPollRate(POLL_RATE*MY_POLL_RATE_COEFF);
+
+			if(steerTimerEvt){
+				TL_ZB_TIMER_CANCEL(&steerTimerEvt);
+			}
+
+			if(myRejoinBackoffTimerEvt){
+				TL_ZB_TIMER_CANCEL(&myRejoinBackoffTimerEvt);
+			}
+
 		    updateAttributesCb(NULL);
 
 #ifdef ZCL_POLL_CTRL
@@ -167,7 +194,10 @@ void zbdemo_bdbCommissioningCb(u8 status, void *arg){
 				do{
 					jitter = zb_random() % 0x0fff;
 				}while(jitter == 0);
-				TL_ZB_TIMER_SCHEDULE(motionSensor_bdbNetworkSteerStart, NULL, jitter);
+				if(steerTimerEvt){
+					TL_ZB_TIMER_CANCEL(&steerTimerEvt);
+				}
+				steerTimerEvt = TL_ZB_TIMER_SCHEDULE(motionSensor_bdbNetworkSteerStart, NULL, jitter);
 			}
 			break;
 		case BDB_COMMISSION_STA_FORMATION_FAILURE:
@@ -185,6 +215,9 @@ void zbdemo_bdbCommissioningCb(u8 status, void *arg){
 			zb_rejoinReq(zb_apsChannelMaskGet(), g_bdbAttrs.scanDuration);
 			break;
 		case BDB_COMMISSION_STA_REJOIN_FAILURE:
+			if(!myRejoinBackoffTimerEvt){
+				myRejoinBackoffTimerEvt = TL_ZB_TIMER_SCHEDULE(motionSensor_rejoinBacckoff, NULL, 60 * 1000);
+			}
 			break;
 		default:
 			break;
@@ -205,8 +238,6 @@ void motionSensor_otaProcessMsgHandler(u8 evt, u8 status)
 	if(evt == OTA_EVT_START){
 		if(status == ZCL_STA_SUCCESS){
 			zb_setPollRate(QUEUE_POLL_RATE);
-		}else{
-
 		}
 	}else if(evt == OTA_EVT_COMPLETE){
 		zb_setPollRate(POLL_RATE*MY_POLL_RATE_COEFF);
@@ -216,6 +247,8 @@ void motionSensor_otaProcessMsgHandler(u8 evt, u8 status)
 		}else{
 			ota_queryStart(OTA_PERIODIC_QUERY_INTERVAL*MY_OTA_QUERY_RATE_COEFF);
 		}
+	}else if(evt == OTA_EVT_IMAGE_DONE){
+		zb_setPollRate(POLL_RATE*MY_POLL_RATE_COEFF);
 	}
 }
 #endif
@@ -233,6 +266,10 @@ void motionSensor_leaveCnfHandler(nlme_leave_cnf_t *pLeaveCnf)
 {
     if(pLeaveCnf->status == SUCCESS){
     	//SYSTEM_RESET();
+
+		if(myRejoinBackoffTimerEvt){
+			TL_ZB_TIMER_CANCEL(&myRejoinBackoffTimerEvt);
+		}
     }
 }
 

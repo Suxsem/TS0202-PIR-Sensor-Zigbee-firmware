@@ -88,7 +88,7 @@ extern "C" {
 #define ZCL_OTA_SUPPORT								1
 #define ZCL_POWER_CFG_SUPPORT                       1
 
-#define MY_OTA_QUERY_RATE_COEFF                    384 //in 5*60 seconds - 1day
+#define MY_OTA_QUERY_RATE_COEFF                    192 //in 5*60 seconds - half day
 #define MY_POLL_RATE_COEFF                       10800 // in 4quarterseconds = 1 seconds - 4h
 #define UPDATE_ATTRIBUTES_INTERVAL            10800000 // in milliseconds - 4h
 
